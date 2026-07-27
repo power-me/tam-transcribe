@@ -422,15 +422,49 @@
     r.continuous = true;
     r.interimResults = true;
 
-    // Some mobile browsers (notably Android Chrome) don't reliably use
-    // resultIndex the way the spec intends — they can re-send the entire
-    // results list mid-session, and can even hand back the *same* final
-    // phrase twice within one event. So we: (1) skip immediately-repeated
-    // entries while reading each event, (2) collapse a session's final
-    // text if it's just one phrase repeated back-to-back, and (3) diff
-    // against the last known session text so only genuinely new speech
-    // gets appended.
+    // What's actually happening on this phone: Chrome is marking each
+    // growing guess of the SAME sentence as "final" while you're still
+    // speaking — "இப்ப", then "இப்ப வச்சு", then "இப்ப வச்சு சொல்றத" — each
+    // one word longer, each marked final. Those aren't separate phrases;
+    // each one REPLACES the previous (shorter) guess of the same sentence.
+    // So instead of concatenating every "final" entry, we merge entries
+    // that are just a word-by-word extension of the one before them, and
+    // only start a new phrase when the next final entry genuinely isn't
+    // a continuation of the current one.
     let sessionFinal = '';
+
+    function isWordPrefix(shortWords, longWords){
+      if (longWords.length < shortWords.length) return false;
+      for (let i = 0; i < shortWords.length; i++){
+        if (shortWords[i].toLowerCase() !== longWords[i].toLowerCase()) return false;
+      }
+      return true;
+    }
+
+    function mergeGrowingRuns(entries){
+      const runs = [];
+      let current = '';
+      let currentWords = [];
+      for (const raw of entries){
+        const t = raw.trim();
+        if (!t) continue;
+        const words = t.split(/\s+/);
+        if (!current){
+          current = t; currentWords = words;
+          continue;
+        }
+        if (isWordPrefix(currentWords, words)){
+          current = t; currentWords = words; // extension of the same sentence — replace
+        } else if (isWordPrefix(words, currentWords)){
+          continue; // shorter/older duplicate of what we already have — ignore
+        } else {
+          runs.push(current);
+          current = t; currentWords = words;
+        }
+      }
+      if (current) runs.push(current);
+      return runs;
+    }
 
     function collapseRepeatedWhole(text){
       const t = text.trim();
@@ -451,22 +485,19 @@
     r.onresult = (e) => {
       if (genId !== recognitionGen) return; // a stray/old instance — ignore it
 
-      let sessionFinalNow = '';
+      const finalEntries = [];
       let interim = '';
-      let lastEntry = '';
       for (let i = 0; i < e.results.length; i++){
         const res = e.results[i];
         if (res.isFinal){
-          const t = res[0].transcript.trim();
-          if (!t) continue;
-          if (t.toLowerCase() === lastEntry) continue; // same phrase repeated back-to-back in this event
-          sessionFinalNow += res[0].transcript;
-          if (!/\s$/.test(sessionFinalNow)) sessionFinalNow += ' ';
-          lastEntry = t.toLowerCase();
+          finalEntries.push(res[0].transcript);
         } else {
           interim += res[0].transcript;
         }
       }
+
+      let sessionFinalNow = mergeGrowingRuns(finalEntries).join(' ');
+      if (sessionFinalNow && !/\s$/.test(sessionFinalNow)) sessionFinalNow += ' ';
       sessionFinalNow = collapseRepeatedWhole(sessionFinalNow);
 
       if (sessionFinalNow !== sessionFinal){
