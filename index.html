@@ -218,6 +218,10 @@
     pointer-events:none;
     transition:opacity .2s, transform .2s;
     z-index:50;
+    max-width:min(360px, 88vw);
+    text-align:center;
+    white-space:normal;
+    line-height:1.4;
   }
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
 
@@ -646,7 +650,7 @@ Rewrite it with correct Tamil spelling, word boundaries, and natural punctuation
 Text:
 """${text}"""`;
 
-      const resp = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
+      const resp = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -659,14 +663,28 @@ Text:
 
       if (!resp.ok){
         const errBody = await resp.text();
-        throw new Error(`${resp.status}: ${errBody.slice(0,200)}`);
+        let reason = `HTTP ${resp.status}`;
+        try {
+          const parsed = JSON.parse(errBody);
+          if (parsed?.error?.message) reason = parsed.error.message;
+        } catch(_){ /* body wasn't JSON, keep the generic reason */ }
+
+        if (resp.status === 400 || resp.status === 403){
+          throw new Error('Invalid API key — ' + reason);
+        } else if (resp.status === 404){
+          throw new Error('Model not available on your key — ' + reason);
+        } else if (resp.status === 429){
+          throw new Error('Daily/rate limit reached — try again later');
+        } else {
+          throw new Error(reason);
+        }
       }
 
       const data = await resp.json();
       const corrected = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
 
       if (!corrected){
-        throw new Error('Empty response');
+        throw new Error('Empty response from the model');
       }
 
       finalText = corrected + ' ';
@@ -675,7 +693,7 @@ Text:
       showToast('Corrected with AI');
     } catch(err){
       console.error(err);
-      showToast('AI correction failed — check your API key', 3000);
+      showToast(err.message || 'AI correction failed', 4000);
     } finally {
       correctBtn.disabled = false;
       correctBtn.innerHTML = originalLabel;
