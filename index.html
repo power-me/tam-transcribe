@@ -348,6 +348,13 @@
     <option value="ta-MY">தமிழ் (Tamil — Malaysia)</option>
   </select>
 
+  <label for="domainSelect">AI correction context</label>
+  <select id="domainSelect">
+    <option value="legal" selected>நீதித்துறை · Legal / Court documents</option>
+    <option value="general">பொது · General speech</option>
+  </select>
+  <p style="margin-top:-8px;">Legal mode tunes spelling correction for court and case-report vocabulary, and pays extra attention to Tamil letters that speech recognition commonly confuses (மயங்கொலி) — like ர/ற, ல/ள/ழ, and ண/ந/ன.</p>
+
   <button class="btn primary" id="saveSettings" style="width:100%; justify-content:center;">Save</button>
 </div>
 
@@ -370,6 +377,7 @@
   const closeDrawer = document.getElementById('closeDrawer');
   const apiKeyInput = document.getElementById('apiKeyInput');
   const langSelect = document.getElementById('langSelect');
+  const domainSelect = document.getElementById('domainSelect');
   const saveSettings = document.getElementById('saveSettings');
 
   let finalText = localStorage.getItem('tt_finalText') || '';
@@ -380,6 +388,7 @@
 
   apiKeyInput.value = localStorage.getItem('tt_apiKey') || '';
   langSelect.value = localStorage.getItem('tt_lang') || 'ta-IN';
+  domainSelect.value = localStorage.getItem('tt_domain') || 'legal';
   transcriptEl.textContent = finalText;
 
   function showToast(msg, ms){
@@ -397,6 +406,7 @@
   saveSettings.onclick = () => {
     localStorage.setItem('tt_apiKey', apiKeyInput.value.trim());
     localStorage.setItem('tt_lang', langSelect.value);
+    localStorage.setItem('tt_domain', domainSelect.value);
     showToast('Settings saved');
     shutDrawer();
   };
@@ -643,9 +653,31 @@
     correctBtn.innerHTML = 'Correcting…';
 
     try {
-      const prompt = `You will receive Tamil text produced by live speech-to-text. It may contain spelling mistakes, wrongly split or joined words, and missing punctuation, but the intended meaning is usually clear from context.
+      const domain = localStorage.getItem('tt_domain') || 'legal';
 
-Rewrite it with correct Tamil spelling, word boundaries, and natural punctuation, while keeping the meaning, tone, and sentence order exactly as spoken. Do not translate. Do not add or remove content. Output ONLY the corrected Tamil text, nothing else.
+      const basePrompt = `You will receive Tamil text produced by live speech-to-text. It may contain spelling mistakes, wrongly split or joined words, and missing punctuation, but the intended meaning is usually clear from context.
+
+Pay close attention to மயங்கொலி (phonetic/character confusion) errors, where speech recognition picks the wrong letter among Tamil consonants that sound alike. Correct these based on standard Tamil orthography and the surrounding sentence, in particular:
+- ர / ற (e.g. கார் vs காற்று)
+- ல / ள / ழ (e.g. வலி vs வளி vs வழி)
+- ண / ந / ன (e.g. பணம் vs பநம் vs பனம்)
+- த / ட, ச / ஜ, and similarly confusable pairs
+
+Also fix wrongly split or wrongly joined words, and add natural punctuation.`;
+
+      const legalPrompt = `${basePrompt}
+
+This text is from the Tamil legal/judicial field — court proceedings, case reports, judgments, petitions, or related legal documents. When a word is ambiguous, prefer the standard legal/court terminology that fits the context, for example (not exhaustive): வழக்கு (case), நீதிமன்றம் (court), நீதிபதி (judge), வாதி (plaintiff/petitioner), பிரதிவாதி (defendant/respondent), சாட்சி (witness), ஆஜர் (appearance before court), மனு (petition), தீர்ப்பு (judgment), உத்தரவு (order), தண்டனை (sentence/punishment), சட்டப்பிரிவு (section of law), குற்றம்/குற்றவாளி (offence/accused), எதிர்வாதம் (counter-argument), வழக்கறிஞர்/வக்கீல் (advocate), சொத்து (property), ஒப்பந்தம் (agreement), விசாரணை (hearing/inquiry), ஜாமீன் (bail), மேல்முறையீடு (appeal).
+
+Do not force legal terms where the text clearly isn't about one — only prefer them when the word is genuinely ambiguous and a legal reading fits the context.`;
+
+      const generalPrompt = basePrompt;
+
+      const promptIntro = domain === 'legal' ? legalPrompt : generalPrompt;
+
+      const prompt = `${promptIntro}
+
+Rewrite the text with correct Tamil spelling, word boundaries, and natural punctuation, while keeping the meaning, tone, and sentence order exactly as spoken. Do not translate. Do not add or remove content. Output ONLY the corrected Tamil text, nothing else.
 
 Text:
 """${text}"""`;
